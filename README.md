@@ -188,7 +188,6 @@ source ~/.ssd-shuttle/shuttle-init.zsh
 
 - Old/inactive projects
 - Large archives or backups
-- iOS Simulator data (`~/Library/Developer/CoreSimulator`)
 - Android SDK (`~/Library/Android`)
 - Inactive node_modules (but consider deleting instead)
 
@@ -210,16 +209,6 @@ diskutil apfs encryptVolume "ExtSSD" -user disk
 ## Offloading System Directories
 
 Development tools create large caches that are perfect for offloading. Here's how to handle each:
-
-### iOS Simulators (10-50GB)
-
-```bash
-# Quit Xcode and Simulator first
-killall Simulator 2>/dev/null; killall Xcode 2>/dev/null
-
-# Offload via symlink
-shuttle offload ~/Library/Developer/CoreSimulator
-```
 
 ### npm Cache (5-20GB)
 
@@ -275,7 +264,6 @@ Docker Desktop manages its own disk image. Configure via Docker settings:
 
 | Directory | Typical Size | Method | Notes |
 |-----------|--------------|--------|-------|
-| `~/Library/Developer/CoreSimulator` | 10-50GB | Symlink | Quit Xcode first |
 | `~/.npm` | 5-20GB | Config or Symlink | `npm config set cache` |
 | pnpm store | 2-10GB | Config | `pnpm config set store-dir` |
 | `~/Library/Android` | 5-15GB | Symlink | Quit Android Studio first |
