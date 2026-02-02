@@ -21,7 +21,9 @@ interface HealthItem {
 export default function Command() {
   const [items, setItems] = useState<HealthItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [overallStatus, setOverallStatus] = useState<"ok" | "warning" | "error">("ok");
+  const [overallStatus, setOverallStatus] = useState<
+    "ok" | "warning" | "error"
+  >("ok");
 
   const runHealthCheck = () => {
     setIsLoading(true);
@@ -63,13 +65,10 @@ export default function Command() {
           message: "No items offloaded",
         });
       } else {
-        let brokenSymlinks = 0;
-        let missingTargets = 0;
         let healthyItems = 0;
 
         for (const item of manifest.items) {
           if (!isSymlink(item.original)) {
-            brokenSymlinks++;
             healthItems.push({
               type: "symlink",
               status: "warning",
@@ -82,12 +81,13 @@ export default function Command() {
           }
 
           if (!fs.existsSync(item.offloaded)) {
-            missingTargets++;
             healthItems.push({
               type: "target",
               status: "error",
               title: getBasename(item.original),
-              message: ssdStatus.connected ? "Target missing on SSD" : "SSD not connected",
+              message: ssdStatus.connected
+                ? "Target missing on SSD"
+                : "SSD not connected",
               path: item.original,
             });
             hasError = true;
@@ -151,14 +151,26 @@ export default function Command() {
             title={item.title}
             subtitle={item.message}
             icon={getStatusIcon(item.status)}
-            accessories={item.path ? [{ text: getRelativePath(item.path), icon: Icon.Link }] : []}
+            accessories={
+              item.path
+                ? [{ text: getRelativePath(item.path), icon: Icon.Link }]
+                : []
+            }
             actions={
               <ActionPanel>
-                <Action title="Refresh" icon={Icon.ArrowClockwise} onAction={runHealthCheck} shortcut={{ modifiers: ["cmd"], key: "r" }} />
+                <Action
+                  title="Refresh"
+                  icon={Icon.ArrowClockwise}
+                  onAction={runHealthCheck}
+                  shortcut={{ modifiers: ["cmd"], key: "r" }}
+                />
                 {item.path && (
                   <>
                     <Action.ShowInFinder path={item.path} />
-                    <Action.CopyToClipboard title="Copy Path" content={item.path} />
+                    <Action.CopyToClipboard
+                      title="Copy Path"
+                      content={item.path}
+                    />
                   </>
                 )}
               </ActionPanel>

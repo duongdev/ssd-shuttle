@@ -54,7 +54,9 @@ export default function Command() {
       });
 
       // Sort by date (most recent first)
-      restoreItems.sort((a, b) => b.offloadedDate.localeCompare(a.offloadedDate));
+      restoreItems.sort((a, b) =>
+        b.offloadedDate.localeCompare(a.offloadedDate),
+      );
 
       setItems(restoreItems);
     } catch (e) {
@@ -70,7 +72,11 @@ export default function Command() {
 
   const handleRestore = async (item: RestoreItem) => {
     if (!item.isAccessible) {
-      await showToast({ style: Toast.Style.Failure, title: "Cannot Restore", message: "External SSD is not connected" });
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Cannot Restore",
+        message: "External SSD is not connected",
+      });
       return;
     }
 
@@ -82,7 +88,11 @@ export default function Command() {
 
     if (!confirmed) return;
 
-    const toast = await showToast({ style: Toast.Style.Animated, title: "Restoring...", message: item.name });
+    const toast = await showToast({
+      style: Toast.Style.Animated,
+      title: "Restoring...",
+      message: item.name,
+    });
 
     const success = restoreDirectory(item.original);
 
@@ -111,14 +121,23 @@ export default function Command() {
   }
 
   return (
-    <List isLoading={isLoading} searchBarPlaceholder="Search offloaded directories...">
-      <List.Section title="Offloaded Directories" subtitle={ssdConnected ? "SSD Connected" : "⚠️ SSD Disconnected"}>
+    <List
+      isLoading={isLoading}
+      searchBarPlaceholder="Search offloaded directories..."
+    >
+      <List.Section
+        title="Offloaded Directories"
+        subtitle={ssdConnected ? "SSD Connected" : "⚠️ SSD Disconnected"}
+      >
         {items.map((item) => (
           <List.Item
             key={item.original}
             title={item.name}
             subtitle={item.displayPath}
-            icon={{ source: Icon.HardDrive, tintColor: item.isAccessible ? Color.Blue : Color.Red }}
+            icon={{
+              source: Icon.HardDrive,
+              tintColor: item.isAccessible ? Color.Blue : Color.Red,
+            }}
             accessories={[
               { text: item.offloadedDate, icon: Icon.Calendar },
               {
@@ -129,10 +148,24 @@ export default function Command() {
             ]}
             actions={
               <ActionPanel>
-                <Action title="Restore to Internal" icon={Icon.Download} onAction={() => handleRestore(item)} />
-                {item.isAccessible && <Action.ShowInFinder path={item.original} />}
-                <Action.CopyToClipboard title="Copy Path" content={item.original} />
-                <Action title="Refresh" icon={Icon.ArrowClockwise} onAction={loadOffloadedItems} shortcut={{ modifiers: ["cmd"], key: "r" }} />
+                <Action
+                  title="Restore to Internal"
+                  icon={Icon.Download}
+                  onAction={() => handleRestore(item)}
+                />
+                {item.isAccessible && (
+                  <Action.ShowInFinder path={item.original} />
+                )}
+                <Action.CopyToClipboard
+                  title="Copy Path"
+                  content={item.original}
+                />
+                <Action
+                  title="Refresh"
+                  icon={Icon.ArrowClockwise}
+                  onAction={loadOffloadedItems}
+                  shortcut={{ modifiers: ["cmd"], key: "r" }}
+                />
               </ActionPanel>
             }
           />

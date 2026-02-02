@@ -56,8 +56,10 @@ export function getShuttleConfig(): ShuttleConfig {
       let value = trimmed.slice(eqIndex + 1).trim();
 
       // Remove surrounding quotes
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
         value = value.slice(1, -1);
       }
 
@@ -101,7 +103,9 @@ export function getSsdStatus(): SsdStatus {
   };
 
   try {
-    status.connected = fs.existsSync(config.ssdPath) && fs.statSync(config.ssdPath).isDirectory();
+    status.connected =
+      fs.existsSync(config.ssdPath) &&
+      fs.statSync(config.ssdPath).isDirectory();
 
     if (status.connected) {
       try {
@@ -181,15 +185,19 @@ export function getRelativePath(filePath: string): string {
 export function offloadDirectory(dirPath: string): boolean {
   try {
     // Use bash -c to properly set environment and run command
-    const result = execSync(`bash -c 'CONFIRM=false "${SHUTTLE_BIN}" offload "${dirPath}"'`, {
-      encoding: "utf-8",
-      timeout: 120000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const result = execSync(
+      `bash -c 'CONFIRM=false "${SHUTTLE_BIN}" offload "${dirPath}"'`,
+      {
+        encoding: "utf-8",
+        timeout: 120000,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
     console.log("Offload result:", result);
     return true;
-  } catch (e: any) {
-    console.error("Offload error:", e.message, e.stderr);
+  } catch (e: unknown) {
+    const error = e as Error & { stderr?: string };
+    console.error("Offload error:", error.message, error.stderr);
     return false;
   }
 }
@@ -197,15 +205,19 @@ export function offloadDirectory(dirPath: string): boolean {
 export function restoreDirectory(symlinkPath: string): boolean {
   try {
     // Use bash -c to properly set environment and run command
-    const result = execSync(`bash -c 'CONFIRM=false "${SHUTTLE_BIN}" restore "${symlinkPath}"'`, {
-      encoding: "utf-8",
-      timeout: 120000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const result = execSync(
+      `bash -c 'CONFIRM=false "${SHUTTLE_BIN}" restore "${symlinkPath}"'`,
+      {
+        encoding: "utf-8",
+        timeout: 120000,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
     console.log("Restore result:", result);
     return true;
-  } catch (e: any) {
-    console.error("Restore error:", e.message, e.stderr);
+  } catch (e: unknown) {
+    const error = e as Error & { stderr?: string };
+    console.error("Restore error:", error.message, error.stderr);
     return false;
   }
 }

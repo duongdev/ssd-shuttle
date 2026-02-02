@@ -72,7 +72,11 @@ export default function Command() {
 
     if (!confirmed) return;
 
-    const toast = await showToast({ style: Toast.Style.Animated, title: "Offloading...", message: item.name });
+    const toast = await showToast({
+      style: Toast.Style.Animated,
+      title: "Offloading...",
+      message: item.name,
+    });
 
     const success = offloadDirectory(item.path);
 
@@ -101,7 +105,10 @@ export default function Command() {
   }
 
   return (
-    <List isLoading={isLoading} searchBarPlaceholder="Search directories to offload...">
+    <List
+      isLoading={isLoading}
+      searchBarPlaceholder="Search directories to offload..."
+    >
       <List.Section title="Available Directories">
         {items.map((item) => (
           <List.Item
@@ -111,10 +118,19 @@ export default function Command() {
             icon={{ source: Icon.Folder, tintColor: Color.Yellow }}
             actions={
               <ActionPanel>
-                <Action title="Offload to SSD" icon={Icon.Upload} onAction={() => handleOffload(item)} />
+                <Action
+                  title="Offload to Ssd"
+                  icon={Icon.Upload}
+                  onAction={() => handleOffload(item)}
+                />
                 <Action.ShowInFinder path={item.path} />
                 <Action.CopyToClipboard title="Copy Path" content={item.path} />
-                <Action title="Refresh" icon={Icon.ArrowClockwise} onAction={loadDirectories} shortcut={{ modifiers: ["cmd"], key: "r" }} />
+                <Action
+                  title="Refresh"
+                  icon={Icon.ArrowClockwise}
+                  onAction={loadDirectories}
+                  shortcut={{ modifiers: ["cmd"], key: "r" }}
+                />
               </ActionPanel>
             }
           />

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint shuttle CLI
+        run: shellcheck -x shuttle
+
+      - name: Lint shell integration scripts
+        run: |
+          shellcheck -x shuttle-init.zsh || true
+          # Allow warnings for zsh-specific syntax
+
+  test-cli:
+    name: CLI Tests (BATS)
+    runs-on: macos-latest
+    needs: shellcheck
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install BATS and helpers
+        run: |
+          brew install bats-core
+          brew tap bats-core/bats-core
+          brew install bats-support bats-assert
+
+      - name: Install jq
+        run: brew install jq
+
+      - name: Run BATS tests
+        run: bats test/*.bats --tap
+
+  test-raycast:
+    name: Raycast Extension
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: raycast-extension
+        run: npm ci
+
+      - name: Lint
+        working-directory: raycast-extension
+        run: npm run lint
+
+      - name: TypeScript check
+        working-directory: raycast-extension
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: raycast-extension
+        run: npm run build
+
+  all-tests-pass:
+    name: All Tests Pass
+    runs-on: ubuntu-latest
+    needs: [shellcheck, test-cli, test-raycast]
+    steps:
+      - name: All tests passed
+        run: echo "All tests passed!"

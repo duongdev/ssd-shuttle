@@ -39,7 +39,11 @@ export default function Command() {
 
     try {
       const status = getSsdStatus();
-      setSsdInfo(status.connected ? `💾 ${status.available || "?"} free` : "⚠️ SSD Disconnected");
+      setSsdInfo(
+        status.connected
+          ? `💾 ${status.available || "?"} free`
+          : "⚠️ SSD Disconnected",
+      );
 
       const manifest = getManifest();
       const directories: DirectoryItem[] = [];
@@ -96,7 +100,11 @@ export default function Command() {
 
     if (!confirmed) return;
 
-    const toast = await showToast({ style: Toast.Style.Animated, title: "Restoring...", message: item.name });
+    const toast = await showToast({
+      style: Toast.Style.Animated,
+      title: "Restoring...",
+      message: item.name,
+    });
 
     const success = restoreDirectory(item.path);
 
@@ -121,7 +129,11 @@ export default function Command() {
 
     if (!confirmed) return;
 
-    const toast = await showToast({ style: Toast.Style.Animated, title: "Offloading...", message: item.name });
+    const toast = await showToast({
+      style: Toast.Style.Animated,
+      title: "Offloading...",
+      message: item.name,
+    });
 
     const success = offloadDirectory(item.path);
 
@@ -140,49 +152,82 @@ export default function Command() {
   return (
     <List isLoading={isLoading} searchBarPlaceholder="Search directories...">
       <List.Section title="Offloaded" subtitle={ssdInfo}>
-        {items.filter((i) => i.isOffloaded).map((item) => (
-          <List.Item
-            key={item.path}
-            title={item.name}
-            subtitle={item.displayPath}
-            icon={{ source: Icon.HardDrive, tintColor: item.isAccessible ? Color.Blue : Color.Red }}
-            accessories={[
-              item.offloadedDate ? { text: item.offloadedDate, icon: Icon.Calendar } : {},
-              {
-                icon: item.isAccessible
-                  ? { source: Icon.CheckCircle, tintColor: Color.Green }
-                  : { source: Icon.XMarkCircle, tintColor: Color.Red },
-              },
-            ]}
-            actions={
-              <ActionPanel>
-                <Action title="Restore to Internal" icon={Icon.Download} onAction={() => handleRestore(item)} />
-                <Action.ShowInFinder path={item.path} />
-                <Action.CopyToClipboard title="Copy Path" content={item.path} />
-                <Action title="Refresh" icon={Icon.ArrowClockwise} onAction={loadData} shortcut={{ modifiers: ["cmd"], key: "r" }} />
-              </ActionPanel>
-            }
-          />
-        ))}
+        {items
+          .filter((i) => i.isOffloaded)
+          .map((item) => (
+            <List.Item
+              key={item.path}
+              title={item.name}
+              subtitle={item.displayPath}
+              icon={{
+                source: Icon.HardDrive,
+                tintColor: item.isAccessible ? Color.Blue : Color.Red,
+              }}
+              accessories={[
+                item.offloadedDate
+                  ? { text: item.offloadedDate, icon: Icon.Calendar }
+                  : {},
+                {
+                  icon: item.isAccessible
+                    ? { source: Icon.CheckCircle, tintColor: Color.Green }
+                    : { source: Icon.XMarkCircle, tintColor: Color.Red },
+                },
+              ]}
+              actions={
+                <ActionPanel>
+                  <Action
+                    title="Restore to Internal"
+                    icon={Icon.Download}
+                    onAction={() => handleRestore(item)}
+                  />
+                  <Action.ShowInFinder path={item.path} />
+                  <Action.CopyToClipboard
+                    title="Copy Path"
+                    content={item.path}
+                  />
+                  <Action
+                    title="Refresh"
+                    icon={Icon.ArrowClockwise}
+                    onAction={loadData}
+                    shortcut={{ modifiers: ["cmd"], key: "r" }}
+                  />
+                </ActionPanel>
+              }
+            />
+          ))}
       </List.Section>
 
       <List.Section title="Local Directories">
-        {items.filter((i) => !i.isOffloaded).map((item) => (
-          <List.Item
-            key={item.path}
-            title={item.name}
-            subtitle={item.displayPath}
-            icon={{ source: Icon.Folder, tintColor: Color.Yellow }}
-            actions={
-              <ActionPanel>
-                <Action title="Offload to SSD" icon={Icon.Upload} onAction={() => handleOffload(item)} />
-                <Action.ShowInFinder path={item.path} />
-                <Action.CopyToClipboard title="Copy Path" content={item.path} />
-                <Action title="Refresh" icon={Icon.ArrowClockwise} onAction={loadData} shortcut={{ modifiers: ["cmd"], key: "r" }} />
-              </ActionPanel>
-            }
-          />
-        ))}
+        {items
+          .filter((i) => !i.isOffloaded)
+          .map((item) => (
+            <List.Item
+              key={item.path}
+              title={item.name}
+              subtitle={item.displayPath}
+              icon={{ source: Icon.Folder, tintColor: Color.Yellow }}
+              actions={
+                <ActionPanel>
+                  <Action
+                    title="Offload to Ssd"
+                    icon={Icon.Upload}
+                    onAction={() => handleOffload(item)}
+                  />
+                  <Action.ShowInFinder path={item.path} />
+                  <Action.CopyToClipboard
+                    title="Copy Path"
+                    content={item.path}
+                  />
+                  <Action
+                    title="Refresh"
+                    icon={Icon.ArrowClockwise}
+                    onAction={loadData}
+                    shortcut={{ modifiers: ["cmd"], key: "r" }}
+                  />
+                </ActionPanel>
+              }
+            />
+          ))}
       </List.Section>
     </List>
   );

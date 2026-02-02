@@ -88,6 +88,7 @@ EOF
     # Preserve CONFIRM env var if set (allows override from command line)
     local _confirm_override="${CONFIRM:-}"
 
+    # shellcheck source=/dev/null
     source "$CONFIG_FILE"
 
     # Restore CONFIRM override if it was set
@@ -147,7 +148,7 @@ resolve_path() {
 get_relative_path() {
     local full_path="$1"
     # Remove $HOME prefix and leading slash
-    echo "${full_path#$HOME/}"
+    echo "${full_path#"$HOME"/}"
 }
 
 get_offload_dest() {
@@ -173,15 +174,16 @@ add_to_manifest() {
            '.items += [{"original": $orig, "offloaded": $dest, "timestamp": $ts}]' \
            "$MANIFEST_FILE" > "$tmp_file" && mv "$tmp_file" "$MANIFEST_FILE"
     else
-        # Fallback: simple JSON manipulation
+        # Fallback: simple JSON manipulation using printf for proper escaping
         local content
         content=$(cat "$MANIFEST_FILE")
-        local new_item="{\"original\":\"$original_path\",\"offloaded\":\"$offload_path\",\"timestamp\":\"$timestamp\"}"
         if [[ "$content" == '{"items":[]}' ]]; then
-            echo "{\"items\":[$new_item]}" > "$MANIFEST_FILE"
+            printf '{"items":[{"original":"%s","offloaded":"%s","timestamp":"%s"}]}' \
+                "$original_path" "$offload_path" "$timestamp" > "$MANIFEST_FILE"
         else
             # Insert before the last ]}
-            echo "${content%]}",$new_item"]}" > "$MANIFEST_FILE"
+            printf '%s,{"original":"%s","offloaded":"%s","timestamp":"%s"}]}' \
+                "${content%]}" "$original_path" "$offload_path" "$timestamp" > "$MANIFEST_FILE"
         fi
     fi
 }
@@ -526,13 +528,13 @@ cmd_config() {
     echo -e "${DIM}─────────────────────────────────────────${NC}"
     echo -e "  Config file: $CONFIG_FILE"
     echo ""
-    cat "$CONFIG_FILE" | while read -r line; do
+    while read -r line; do
         if [[ "$line" =~ ^# ]]; then
             echo -e "  ${DIM}$line${NC}"
         elif [[ -n "$line" ]]; then
             echo -e "  $line"
         fi
-    done
+    done < "$CONFIG_FILE"
     echo ""
     echo -e "Edit with: ${CYAN}${EDITOR:-nano} $CONFIG_FILE${NC}"
     echo ""
