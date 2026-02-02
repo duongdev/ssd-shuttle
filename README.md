@@ -24,17 +24,21 @@ Shuttle moves directories to your external SSD and leaves symlinks in their plac
 ### CLI
 
 ```bash
+# Clone the repository
+git clone https://github.com/duongdev/ssd-shuttle.git ~/.ssd-shuttle
+
 # Create symlink to add shuttle to your PATH
-ln -s ~/personal/ssd-shuttle/shuttle ~/bin/shuttle
+mkdir -p ~/bin
+ln -s ~/.ssd-shuttle/shuttle ~/bin/shuttle
 
 # Add shell integration (completions + health check on startup)
-echo 'source ~/personal/ssd-shuttle/shuttle-init.zsh' >> ~/.zshrc
+echo 'source ~/.ssd-shuttle/shuttle-init.zsh' >> ~/.zshrc
 ```
 
 ### Raycast Extension
 
 ```bash
-cd ~/personal/ssd-shuttle/raycast-extension
+cd ~/.ssd-shuttle/raycast-extension
 npm install
 npm run dev
 ```
@@ -45,15 +49,15 @@ Then import the extension in Raycast: open Raycast → "Import Extension" → se
 
 ```bash
 # Offload a directory to external SSD
-shuttle offload ~/personal/old-project
+shuttle offload ~/projects/old-project
 
 # Check status of a directory
-shuttle status ~/personal/old-project
+shuttle status ~/projects/old-project
 # → State: Offloaded
-# → Symlink → /Volumes/ExtSSD/Shuttle/personal/old-project
+# → Symlink → /Volumes/ExtSSD/Shuttle/projects/old-project
 
 # Restore when you need fast local access
-shuttle restore ~/personal/old-project
+shuttle restore ~/projects/old-project
 
 # List all offloaded items
 shuttle list
@@ -120,8 +124,8 @@ Offloaded items are tracked in `~/.config/shuttle/manifest.json`:
 {
   "items": [
     {
-      "original": "/Users/you/personal/project",
-      "offloaded": "/Volumes/ExtSSD/Shuttle/personal/project",
+      "original": "/Users/you/projects/old-project",
+      "offloaded": "/Volumes/ExtSSD/Shuttle/projects/old-project",
       "timestamp": "2024-01-15T10:30:00Z"
     }
   ]
@@ -137,7 +141,7 @@ The `shuttle-init.zsh` script provides:
 
 ```bash
 # Add to ~/.zshrc
-source ~/personal/ssd-shuttle/shuttle-init.zsh
+source ~/.ssd-shuttle/shuttle-init.zsh
 ```
 
 ## Requirements
