@@ -6,7 +6,19 @@ SHUTTLE_DIR="${0:A:h}"
 
 # Add completions to fpath
 fpath=("$SHUTTLE_DIR/completions" $fpath)
-autoload -Uz compinit && compinit -C
+
+# Rebuild completion cache if shuttle completion is missing
+if [[ ! -f ~/.zcompdump ]] || ! grep -q '_shuttle' ~/.zcompdump 2>/dev/null; then
+    autoload -Uz compinit && compinit
+else
+    autoload -Uz compinit && compinit -C
+fi
+
+# Warp terminal completions (uses YAML specs instead of zsh completions)
+if [[ -n "$WARP_TERMINAL" ]] && [[ -f "$SHUTTLE_DIR/completions/shuttle.yaml" ]]; then
+    mkdir -p ~/.warp/completions 2>/dev/null
+    ln -sf "$SHUTTLE_DIR/completions/shuttle.yaml" ~/.warp/completions/shuttle.yaml 2>/dev/null
+fi
 
 # Health check on shell startup (async to not slow down shell)
 shuttle-health-check() {

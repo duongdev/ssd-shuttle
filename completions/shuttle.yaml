@@ -1,0 +1,78 @@
+name: shuttle
+description: Move directories between internal and external SSDs using symlinks
+subcommands:
+  - name: offload
+    description: Move directory to external SSD, create symlink
+    args:
+      - name: directory
+        description: Directory to offload
+        generators:
+          - type: directory
+  - name: off
+    description: Move directory to external SSD (alias)
+    args:
+      - name: directory
+        generators:
+          - type: directory
+  - name: o
+    description: Move directory to external SSD (alias)
+    args:
+      - name: directory
+        generators:
+          - type: directory
+  - name: restore
+    description: Move directory back to internal drive
+    args:
+      - name: directory
+        description: Offloaded directory to restore
+        generators:
+          - type: directory
+  - name: res
+    description: Move directory back (alias)
+    args:
+      - name: directory
+        generators:
+          - type: directory
+  - name: r
+    description: Move directory back (alias)
+    args:
+      - name: directory
+        generators:
+          - type: directory
+  - name: status
+    description: Show status of path or all managed items
+    args:
+      - name: path
+        description: Path to check status
+        isOptional: true
+        generators:
+          - type: directory
+  - name: stat
+    description: Show status (alias)
+    args:
+      - name: path
+        isOptional: true
+        generators:
+          - type: directory
+  - name: s
+    description: Show status (alias)
+    args:
+      - name: path
+        isOptional: true
+        generators:
+          - type: directory
+  - name: list
+    description: List all offloaded directories
+  - name: ls
+    description: List all offloaded directories (alias)
+  - name: config
+    description: Show configuration
+  - name: health
+    description: Check all symlinks are valid
+    options:
+      - name: --quiet
+        description: Only output issues, exit code indicates health
+      - name: -q
+        description: Only output issues (alias)
+  - name: help
+    description: Show help message
