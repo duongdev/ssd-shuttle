@@ -73,12 +73,6 @@
 # Finder Quick Action for offloading directories
 
 SHUTTLE="$HOME/bin/shuttle"
-LOGFILE="$HOME/.shuttle-finder.log"
-
-# Log function
-log() {
-    echo "$(date): $1" &gt;&gt; "$LOGFILE"
-}
 
 # Function to show notification
 notify() {
@@ -90,9 +84,6 @@ show_error() {
     osascript -e "display dialog \"$1\" with title \"Shuttle Error\" buttons {\"OK\"} default button \"OK\" with icon stop"
 }
 
-log "=== Offload Quick Action started ==="
-log "Arguments: $@"
-
 # Check if shuttle exists
 if [[ ! -x "$SHUTTLE" ]]; then
     show_error "Shuttle CLI not found. Please install shuttle first."
@@ -101,7 +92,6 @@ fi
 
 # Process each selected folder
 for folder in "$@"; do
-    log "Processing: $folder"
     name=$(basename "$folder")
 
     # Check if it's a symlink (already offloaded)
@@ -112,24 +102,19 @@ for folder in "$@"; do
 
     # Check if it's a directory
     if [[ ! -d "$folder" ]]; then
-        log "Not a directory: $folder"
         show_error "$name is not a directory."
         continue
     fi
 
     # Run shuttle offload
-    log "Running: CONFIRM=false $SHUTTLE offload $folder"
     output=$(CONFIRM=false "$SHUTTLE" offload "$folder" 2&gt;&amp;1)
     exit_code=$?
-    log "Exit code: $exit_code"
-    log "Output: $output"
 
     if [[ $exit_code -eq 0 ]]; then
         notify "Shuttle" "Offloaded: $name"
     else
         # Strip ANSI codes
         clean=$(echo "$output" | LC_ALL=C tr -d '\033' | tr -d '[]' | head -1)
-        log "Clean output: $clean"
         show_error "Failed: $clean"
     fi
 done</string>
