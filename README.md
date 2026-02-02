@@ -45,6 +45,19 @@ npm run dev
 
 Then import the extension in Raycast: open Raycast → "Import Extension" → select the `raycast-extension` folder.
 
+### Finder Quick Actions
+
+Right-click context menu integration for macOS Finder:
+
+```bash
+cd ~/.ssd-shuttle/finder-actions
+./install.sh
+```
+
+This adds two Quick Actions accessible via right-click → Quick Actions:
+- **Shuttle - Offload to SSD** - Move folder to external SSD
+- **Shuttle - Restore from SSD** - Move folder back to internal drive
+
 ## CLI Usage
 
 ```bash
@@ -290,9 +303,13 @@ ssd-shuttle/
 │   │   ├── index.tsx       # Main status view
 │   │   ├── offload.tsx     # Offload command
 │   │   ├── restore.tsx     # Restore command
-│   │   └── health.tsx      # Health check
+│   │   ├── health.tsx      # Health check
 │   │   └── utils.ts        # Shared utilities
 │   └── package.json
+├── finder-actions/         # macOS Finder Quick Actions
+│   ├── install.sh          # Install workflows
+│   ├── uninstall.sh        # Remove workflows
+│   └── *.workflow/         # Automator Quick Action bundles
 ├── README.md
 └── CLAUDE.md               # AI assistant context
 ```
