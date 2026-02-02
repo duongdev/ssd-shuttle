@@ -1,0 +1,62 @@
+{
+  "name": "shuttle",
+  "title": "Shuttle",
+  "description": "Move directories between internal and external drives seamlessly",
+  "icon": "icon.png",
+  "author": "duongdev",
+  "categories": ["Developer Tools", "Productivity"],
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "index",
+      "title": "Shuttle Status",
+      "subtitle": "View and manage offloaded directories",
+      "description": "View SSD status and manage offloaded directories",
+      "mode": "view",
+      "keywords": ["ssd", "storage", "offload", "restore"]
+    },
+    {
+      "name": "offload",
+      "title": "Offload Directory",
+      "subtitle": "Move to external SSD",
+      "description": "Move a directory to external SSD and create symlink",
+      "mode": "view",
+      "keywords": ["move", "external", "ssd", "archive"]
+    },
+    {
+      "name": "restore",
+      "title": "Restore Directory",
+      "subtitle": "Move back to internal drive",
+      "description": "Restore an offloaded directory back to internal drive",
+      "mode": "view",
+      "keywords": ["restore", "internal", "bring back"]
+    },
+    {
+      "name": "health",
+      "title": "Health Check",
+      "subtitle": "Check SSD and symlinks",
+      "description": "Verify SSD connection and all symlinks are valid",
+      "mode": "view",
+      "keywords": ["check", "verify", "status"]
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.64.0",
+    "@raycast/utils": "^1.10.0"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^1.0.8",
+    "@types/node": "20.10.0",
+    "@types/react": "18.2.38",
+    "eslint": "^8.54.0",
+    "prettier": "^3.1.0",
+    "typescript": "^5.3.2"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint",
+    "publish": "npx @raycast/api@latest publish"
+  }
+}

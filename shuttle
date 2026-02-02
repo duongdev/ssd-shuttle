@@ -1,0 +1,707 @@
+#!/bin/bash
+#
+# shuttle - Seamlessly move directories between internal and external drives
+#
+# Usage:
+#   shuttle offload <path>    Move to external SSD, create symlink
+#   shuttle restore <path>    Move back to internal, remove symlink
+#   shuttle status [path]     Show status of path or all managed items
+#   shuttle list              List all offloaded directories
+#   shuttle config            Show/edit configuration
+#
+
+set -euo pipefail
+
+# Configuration
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/shuttle"
+CONFIG_FILE="$CONFIG_DIR/config"
+MANIFEST_FILE="$CONFIG_DIR/manifest.json"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+NC='\033[0m' # No Color
+
+# Icons
+ICON_CHECK="✓"
+ICON_CROSS="✗"
+ICON_ARROW="→"
+ICON_LINK="⤷"
+ICON_FOLDER="📁"
+ICON_SSD="💾"
+
+#---------------------------------------
+# Utility Functions
+#---------------------------------------
+
+log_info() { echo -e "${BLUE}${ICON_ARROW}${NC} $1"; }
+log_success() { echo -e "${GREEN}${ICON_CHECK}${NC} $1"; }
+log_error() { echo -e "${RED}${ICON_CROSS}${NC} $1" >&2; }
+log_warn() { echo -e "${YELLOW}!${NC} $1"; }
+
+ensure_config() {
+    mkdir -p "$CONFIG_DIR"
+
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        # Auto-detect external SSD
+        local detected_ssd=""
+        for vol in /Volumes/*/; do
+            vol_name=$(basename "$vol")
+            if [[ "$vol_name" != "Macintosh HD" && "$vol_name" != "." ]]; then
+                # Check if it's a real volume (not a disk image)
+                if diskutil info "$vol" 2>/dev/null | grep -q "Solid State"; then
+                    detected_ssd="$vol"
+                    break
+                fi
+            fi
+        done
+
+        if [[ -z "$detected_ssd" ]]; then
+            # Fallback: use first non-system volume
+            for vol in /Volumes/*/; do
+                vol_name=$(basename "$vol")
+                if [[ "$vol_name" != "Macintosh HD" ]]; then
+                    detected_ssd="$vol"
+                    break
+                fi
+            done
+        fi
+
+        cat > "$CONFIG_FILE" << EOF
+# Shuttle Configuration
+# External SSD mount point
+SSD_PATH="${detected_ssd:-/Volumes/ExtSSD}"
+
+# Directory on SSD to store offloaded items
+STORAGE_DIR="Shuttle"
+
+# Require confirmation before operations (true/false)
+CONFIRM=true
+EOF
+        log_info "Created config at $CONFIG_FILE"
+    fi
+
+    # Preserve CONFIRM env var if set (allows override from command line)
+    local _confirm_override="${CONFIRM:-}"
+
+    source "$CONFIG_FILE"
+
+    # Restore CONFIRM override if it was set
+    if [[ -n "$_confirm_override" ]]; then
+        CONFIRM="$_confirm_override"
+    fi
+
+    # Ensure manifest exists
+    if [[ ! -f "$MANIFEST_FILE" ]]; then
+        echo '{"items":[]}' > "$MANIFEST_FILE"
+    fi
+}
+
+check_ssd() {
+    if [[ ! -d "$SSD_PATH" ]]; then
+        log_error "External SSD not mounted at $SSD_PATH"
+        log_info "Check your SSD connection or update config: shuttle config"
+        exit 1
+    fi
+
+    # Check if SSD is writable
+    if [[ ! -w "$SSD_PATH" ]]; then
+        log_error "External SSD is not writable"
+        exit 1
+    fi
+}
+
+get_ssd_storage_path() {
+    echo "${SSD_PATH%/}/${STORAGE_DIR}"
+}
+
+ensure_storage_dir() {
+    local storage_path
+    storage_path=$(get_ssd_storage_path)
+
+    if [[ ! -d "$storage_path" ]]; then
+        mkdir -p "$storage_path"
+        log_info "Created storage directory: $storage_path"
+    fi
+}
+
+resolve_path() {
+    local path="$1"
+
+    # Handle symlinks - get the actual target for status checks
+    if [[ -L "$path" ]]; then
+        # Return the path as-is for symlinks
+        echo "$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
+    elif [[ -e "$path" ]]; then
+        echo "$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
+    else
+        # Path doesn't exist, just normalize it
+        echo "$path"
+    fi
+}
+
+get_relative_path() {
+    local full_path="$1"
+    # Remove $HOME prefix and leading slash
+    echo "${full_path#$HOME/}"
+}
+
+get_offload_dest() {
+    local original_path="$1"
+    local relative_path
+    relative_path=$(get_relative_path "$original_path")
+    echo "$(get_ssd_storage_path)/$relative_path"
+}
+
+add_to_manifest() {
+    local original_path="$1"
+    local offload_path="$2"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Use jq if available, otherwise use simple append
+    if command -v jq &>/dev/null; then
+        local tmp_file
+        tmp_file=$(mktemp)
+        jq --arg orig "$original_path" \
+           --arg dest "$offload_path" \
+           --arg ts "$timestamp" \
+           '.items += [{"original": $orig, "offloaded": $dest, "timestamp": $ts}]' \
+           "$MANIFEST_FILE" > "$tmp_file" && mv "$tmp_file" "$MANIFEST_FILE"
+    else
+        # Fallback: simple JSON manipulation
+        local content
+        content=$(cat "$MANIFEST_FILE")
+        local new_item="{\"original\":\"$original_path\",\"offloaded\":\"$offload_path\",\"timestamp\":\"$timestamp\"}"
+        if [[ "$content" == '{"items":[]}' ]]; then
+            echo "{\"items\":[$new_item]}" > "$MANIFEST_FILE"
+        else
+            # Insert before the last ]}
+            echo "${content%]}",$new_item"]}" > "$MANIFEST_FILE"
+        fi
+    fi
+}
+
+remove_from_manifest() {
+    local original_path="$1"
+
+    if command -v jq &>/dev/null; then
+        local tmp_file
+        tmp_file=$(mktemp)
+        jq --arg orig "$original_path" \
+           '.items = [.items[] | select(.original != $orig)]' \
+           "$MANIFEST_FILE" > "$tmp_file" && mv "$tmp_file" "$MANIFEST_FILE"
+    fi
+}
+
+get_manifest_item() {
+    local original_path="$1"
+
+    if command -v jq &>/dev/null; then
+        jq -r --arg orig "$original_path" \
+           '.items[] | select(.original == $orig) | "\(.offloaded)|\(.timestamp)"' \
+           "$MANIFEST_FILE" 2>/dev/null
+    fi
+}
+
+is_offloaded() {
+    local path="$1"
+    [[ -L "$path" ]] && [[ "$(readlink "$path")" == "$(get_ssd_storage_path)"* ]]
+}
+
+format_size() {
+    local size=$1
+    if (( size >= 1073741824 )); then
+        echo "$(echo "scale=1; $size / 1073741824" | bc)G"
+    elif (( size >= 1048576 )); then
+        echo "$(echo "scale=1; $size / 1048576" | bc)M"
+    elif (( size >= 1024 )); then
+        echo "$(echo "scale=0; $size / 1024" | bc)K"
+    else
+        echo "${size}B"
+    fi
+}
+
+confirm_action() {
+    local message="$1"
+
+    if [[ "$CONFIRM" != "true" ]]; then
+        return 0
+    fi
+
+    echo -en "${YELLOW}?${NC} $message [y/N] "
+    read -r response
+    [[ "$response" =~ ^[Yy]$ ]]
+}
+
+#---------------------------------------
+# Commands
+#---------------------------------------
+
+cmd_offload() {
+    local path="$1"
+
+    check_ssd
+    ensure_storage_dir
+
+    # Resolve to absolute path
+    local abs_path
+    abs_path=$(resolve_path "$path")
+
+    # Validate
+    if [[ ! -e "$abs_path" ]]; then
+        log_error "Path does not exist: $abs_path"
+        exit 1
+    fi
+
+    if [[ -L "$abs_path" ]]; then
+        log_error "Path is already a symlink: $abs_path"
+        local target
+        target=$(readlink "$abs_path")
+        log_info "Points to: $target"
+        exit 1
+    fi
+
+    # Calculate destination
+    local dest_path
+    dest_path=$(get_offload_dest "$abs_path")
+
+    # Get size
+    local size_bytes
+    size_bytes=$(du -sk "$abs_path" 2>/dev/null | cut -f1)
+    size_bytes=$((size_bytes * 1024))
+    local size_human
+    size_human=$(format_size "$size_bytes")
+
+    echo ""
+    echo -e "${CYAN}Offload Summary${NC}"
+    echo -e "${DIM}─────────────────────────────────────────${NC}"
+    echo -e "  ${ICON_FOLDER} Source:      $abs_path"
+    echo -e "  ${ICON_SSD} Destination: $dest_path"
+    echo -e "  📊 Size:        $size_human"
+    echo ""
+
+    if ! confirm_action "Move to external SSD?"; then
+        log_info "Cancelled"
+        exit 0
+    fi
+
+    # Create destination directory structure
+    mkdir -p "$(dirname "$dest_path")"
+
+    # Move the directory
+    log_info "Moving to external SSD..."
+    if mv "$abs_path" "$dest_path"; then
+        # Create symlink
+        ln -s "$dest_path" "$abs_path"
+
+        # Update manifest
+        add_to_manifest "$abs_path" "$dest_path"
+
+        echo ""
+        log_success "Offloaded successfully!"
+        echo -e "  ${ICON_LINK} $abs_path ${DIM}→${NC} $dest_path"
+    else
+        log_error "Failed to move directory"
+        exit 1
+    fi
+}
+
+cmd_restore() {
+    local path="$1"
+
+    check_ssd
+
+    # Resolve path
+    local abs_path
+    abs_path=$(resolve_path "$path")
+
+    # Check if it's a symlink pointing to SSD
+    if [[ ! -L "$abs_path" ]]; then
+        log_error "Path is not a symlink: $abs_path"
+        log_info "Only offloaded directories can be restored"
+        exit 1
+    fi
+
+    local target
+    target=$(readlink "$abs_path")
+    local storage_path
+    storage_path=$(get_ssd_storage_path)
+
+    if [[ "$target" != "$storage_path"* ]]; then
+        log_error "Symlink does not point to shuttle storage"
+        log_info "Target: $target"
+        exit 1
+    fi
+
+    if [[ ! -e "$target" ]]; then
+        log_error "Offloaded data not found at: $target"
+        log_info "The external SSD may not be connected"
+        exit 1
+    fi
+
+    # Get size
+    local size_bytes
+    size_bytes=$(du -sk "$target" 2>/dev/null | cut -f1)
+    size_bytes=$((size_bytes * 1024))
+    local size_human
+    size_human=$(format_size "$size_bytes")
+
+    echo ""
+    echo -e "${CYAN}Restore Summary${NC}"
+    echo -e "${DIM}─────────────────────────────────────────${NC}"
+    echo -e "  ${ICON_SSD} Source:      $target"
+    echo -e "  ${ICON_FOLDER} Destination: $abs_path"
+    echo -e "  📊 Size:        $size_human"
+    echo ""
+
+    if ! confirm_action "Restore to internal drive?"; then
+        log_info "Cancelled"
+        exit 0
+    fi
+
+    # Remove symlink
+    rm "$abs_path"
+
+    # Move back
+    log_info "Moving to internal drive..."
+    if mv "$target" "$abs_path"; then
+        # Update manifest
+        remove_from_manifest "$abs_path"
+
+        # Clean up empty parent directories on SSD
+        local parent_dir
+        parent_dir=$(dirname "$target")
+        while [[ "$parent_dir" != "$storage_path" && -d "$parent_dir" ]]; do
+            if [[ -z "$(ls -A "$parent_dir" 2>/dev/null)" ]]; then
+                rmdir "$parent_dir" 2>/dev/null || break
+                parent_dir=$(dirname "$parent_dir")
+            else
+                break
+            fi
+        done
+
+        echo ""
+        log_success "Restored successfully!"
+        echo -e "  ${ICON_FOLDER} $abs_path"
+    else
+        log_error "Failed to restore directory"
+        # Try to recreate symlink
+        ln -s "$target" "$abs_path"
+        exit 1
+    fi
+}
+
+cmd_status() {
+    local path="${1:-}"
+
+    if [[ -n "$path" ]]; then
+        # Status of specific path
+        local abs_path
+        abs_path=$(resolve_path "$path")
+
+        echo ""
+        echo -e "${CYAN}Status: ${NC}$abs_path"
+        echo -e "${DIM}─────────────────────────────────────────${NC}"
+
+        if [[ -L "$abs_path" ]]; then
+            local target
+            target=$(readlink "$abs_path")
+            local storage_path
+            storage_path=$(get_ssd_storage_path)
+
+            if [[ "$target" == "$storage_path"* ]]; then
+                echo -e "  State: ${YELLOW}Offloaded${NC}"
+                echo -e "  ${ICON_LINK} Symlink → $target"
+
+                if [[ -e "$target" ]]; then
+                    local size
+                    size=$(du -sh "$target" 2>/dev/null | cut -f1)
+                    echo -e "  📊 Size: $size"
+                    echo -e "  ${GREEN}${ICON_CHECK}${NC} SSD connected, data accessible"
+                else
+                    echo -e "  ${RED}${ICON_CROSS}${NC} SSD not connected, data inaccessible!"
+                fi
+            else
+                echo -e "  State: ${BLUE}Symlink${NC} (not managed by shuttle)"
+                echo -e "  ${ICON_LINK} Points to: $target"
+            fi
+        elif [[ -d "$abs_path" ]]; then
+            local size
+            size=$(du -sh "$abs_path" 2>/dev/null | cut -f1)
+            echo -e "  State: ${GREEN}Local${NC}"
+            echo -e "  📊 Size: $size"
+            echo -e "  ${ICON_FOLDER} Stored on internal drive"
+        elif [[ -f "$abs_path" ]]; then
+            echo -e "  State: ${GREEN}Local file${NC}"
+            echo -e "  ${ICON_FOLDER} Stored on internal drive"
+        else
+            echo -e "  State: ${RED}Not found${NC}"
+        fi
+        echo ""
+    else
+        # General status
+        check_ssd
+
+        local storage_path
+        storage_path=$(get_ssd_storage_path)
+
+        echo ""
+        echo -e "${CYAN}Shuttle Status${NC}"
+        echo -e "${DIM}─────────────────────────────────────────${NC}"
+        echo -e "  SSD Path:     $SSD_PATH"
+        echo -e "  Storage Dir:  $storage_path"
+
+        # SSD space
+        local ssd_info
+        ssd_info=$(df -h "$SSD_PATH" 2>/dev/null | tail -1)
+        local ssd_used ssd_avail
+        ssd_used=$(echo "$ssd_info" | awk '{print $3}')
+        ssd_avail=$(echo "$ssd_info" | awk '{print $4}')
+        echo -e "  SSD Used:     $ssd_used"
+        echo -e "  SSD Free:     $ssd_avail"
+
+        # Count offloaded items
+        if command -v jq &>/dev/null; then
+            local count
+            count=$(jq '.items | length' "$MANIFEST_FILE" 2>/dev/null || echo "0")
+            echo -e "  Offloaded:    $count items"
+        fi
+        echo ""
+    fi
+}
+
+cmd_list() {
+    check_ssd
+
+    echo ""
+    echo -e "${CYAN}Offloaded Items${NC}"
+    echo -e "${DIM}─────────────────────────────────────────${NC}"
+
+    if ! command -v jq &>/dev/null; then
+        log_warn "Install jq for better list formatting: brew install jq"
+        cat "$MANIFEST_FILE"
+        return
+    fi
+
+    local count
+    count=$(jq '.items | length' "$MANIFEST_FILE" 2>/dev/null || echo "0")
+
+    if [[ "$count" == "0" ]]; then
+        echo -e "  ${DIM}No items offloaded${NC}"
+        echo ""
+        return
+    fi
+
+    jq -r '.items[] | "\(.original)|\(.offloaded)|\(.timestamp)"' "$MANIFEST_FILE" 2>/dev/null | while IFS='|' read -r orig dest ts; do
+        local status_icon="${GREEN}${ICON_CHECK}${NC}"
+        local size=""
+
+        if [[ -L "$orig" ]]; then
+            if [[ -e "$dest" ]]; then
+                size=$(du -sh "$dest" 2>/dev/null | cut -f1)
+            else
+                status_icon="${RED}${ICON_CROSS}${NC}"
+                size="(unavailable)"
+            fi
+        else
+            status_icon="${YELLOW}?${NC}"
+            size="(restored?)"
+        fi
+
+        echo -e "  $status_icon ${BLUE}$(basename "$orig")${NC}"
+        echo -e "    ${DIM}${orig}${NC}"
+        echo -e "    Size: $size  |  Offloaded: ${ts%T*}"
+        echo ""
+    done
+}
+
+cmd_config() {
+    echo ""
+    echo -e "${CYAN}Configuration${NC}"
+    echo -e "${DIM}─────────────────────────────────────────${NC}"
+    echo -e "  Config file: $CONFIG_FILE"
+    echo ""
+    cat "$CONFIG_FILE" | while read -r line; do
+        if [[ "$line" =~ ^# ]]; then
+            echo -e "  ${DIM}$line${NC}"
+        elif [[ -n "$line" ]]; then
+            echo -e "  $line"
+        fi
+    done
+    echo ""
+    echo -e "Edit with: ${CYAN}${EDITOR:-nano} $CONFIG_FILE${NC}"
+    echo ""
+}
+
+cmd_health() {
+    local quiet="${1:-}"
+    local issues=0
+    local ssd_missing=false
+
+    # Check if SSD is mounted
+    if [[ ! -d "$SSD_PATH" ]]; then
+        ssd_missing=true
+        if [[ "$quiet" != "--quiet" ]]; then
+            log_error "External SSD not mounted at $SSD_PATH"
+        fi
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        [[ "$quiet" != "--quiet" ]] && log_warn "Install jq for health checks: brew install jq"
+        return 1
+    fi
+
+    local count
+    count=$(jq '.items | length' "$MANIFEST_FILE" 2>/dev/null || echo "0")
+
+    if [[ "$count" == "0" ]]; then
+        [[ "$quiet" != "--quiet" ]] && log_success "No offloaded items to check"
+        return 0
+    fi
+
+    local broken_links=()
+    local missing_targets=()
+
+    while IFS='|' read -r orig dest ts; do
+        if [[ ! -L "$orig" ]]; then
+            # Symlink missing - might have been restored manually
+            ((issues++))
+            broken_links+=("$orig")
+        elif [[ ! -e "$dest" ]]; then
+            # Target missing - SSD disconnected or data deleted
+            ((issues++))
+            missing_targets+=("$orig|$dest")
+        fi
+    done < <(jq -r '.items[] | "\(.original)|\(.offloaded)|\(.timestamp)"' "$MANIFEST_FILE" 2>/dev/null)
+
+    if [[ "$quiet" == "--quiet" ]]; then
+        # Quiet mode - just show notification if issues
+        if [[ $issues -gt 0 ]]; then
+            if $ssd_missing; then
+                echo "⚠️  SSD disconnected - $count offloaded items unavailable"
+            else
+                echo "⚠️  Shuttle: $issues issue(s) found - run 'shuttle health'"
+            fi
+            return 1
+        fi
+        return 0
+    fi
+
+    # Verbose output
+    echo ""
+    echo -e "${CYAN}Health Check${NC}"
+    echo -e "${DIM}─────────────────────────────────────────${NC}"
+
+    if $ssd_missing; then
+        echo -e "  ${RED}${ICON_CROSS}${NC} SSD not connected"
+        echo -e "    ${DIM}$count offloaded item(s) are inaccessible${NC}"
+        echo ""
+        return 1
+    fi
+
+    if [[ ${#broken_links[@]} -gt 0 ]]; then
+        echo -e "  ${YELLOW}!${NC} Symlinks missing (may have been restored manually):"
+        for link in "${broken_links[@]}"; do
+            echo -e "    ${DIM}$link${NC}"
+        done
+        echo ""
+    fi
+
+    if [[ ${#missing_targets[@]} -gt 0 ]]; then
+        echo -e "  ${RED}${ICON_CROSS}${NC} Targets missing on SSD:"
+        for item in "${missing_targets[@]}"; do
+            IFS='|' read -r orig dest <<< "$item"
+            echo -e "    ${DIM}$orig → $dest${NC}"
+        done
+        echo ""
+    fi
+
+    if [[ $issues -eq 0 ]]; then
+        echo -e "  ${GREEN}${ICON_CHECK}${NC} All $count offloaded item(s) healthy"
+        echo ""
+        return 0
+    else
+        echo -e "  ${YELLOW}!${NC} $issues issue(s) found"
+        echo ""
+        return 1
+    fi
+}
+
+cmd_help() {
+    cat << 'EOF'
+
+  shuttle - Seamlessly move directories between internal and external drives
+
+  USAGE
+      shuttle <command> [arguments]
+
+  COMMANDS
+      offload <path>    Move directory to external SSD, create symlink in place
+      restore <path>    Move directory back to internal drive, remove symlink
+      status [path]     Show status of a path or general shuttle status
+      list              List all offloaded directories
+      health            Check all symlinks and SSD connection
+      config            Show configuration
+
+  EXAMPLES
+      shuttle offload ~/projects/my-app     # Move to SSD
+      shuttle restore ~/projects/my-app     # Bring it back
+      shuttle status ~/projects/my-app      # Check if offloaded
+      shuttle list                          # See all offloaded items
+
+  The idea is simple:
+      • "offload" moves data to SSD and leaves a symlink behind
+      • "restore" brings it back when you need fast local access
+      • Your paths stay the same, tools work transparently
+
+EOF
+}
+
+#---------------------------------------
+# Main
+#---------------------------------------
+
+main() {
+    ensure_config
+
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        offload|off|o)
+            [[ -z "${1:-}" ]] && { log_error "Usage: shuttle offload <path>"; exit 1; }
+            cmd_offload "$1"
+            ;;
+        restore|res|r)
+            [[ -z "${1:-}" ]] && { log_error "Usage: shuttle restore <path>"; exit 1; }
+            cmd_restore "$1"
+            ;;
+        status|stat|s)
+            cmd_status "${1:-}"
+            ;;
+        list|ls|l)
+            cmd_list
+            ;;
+        config|conf|c)
+            cmd_config
+            ;;
+        health|h)
+            cmd_health "${1:-}"
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            log_error "Unknown command: $cmd"
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

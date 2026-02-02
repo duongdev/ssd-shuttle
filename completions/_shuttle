@@ -1,0 +1,77 @@
+#compdef shuttle
+
+# Zsh completion for shuttle
+# Install: Add to fpath or source directly
+
+_shuttle_commands() {
+    local commands=(
+        'offload:Move directory to external SSD, create symlink'
+        'restore:Move directory back to internal drive'
+        'status:Show status of path or all managed items'
+        'list:List all offloaded directories'
+        'config:Show configuration'
+        'health:Check all symlinks are valid'
+        'help:Show help'
+    )
+    _describe 'command' commands
+}
+
+_shuttle_offload_paths() {
+    # Complete directories that are NOT symlinks (can be offloaded)
+    _path_files -/ -F "*(@)"
+}
+
+_shuttle_restore_paths() {
+    # Complete only symlinks that point to shuttle storage
+    local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/shuttle"
+    local config_file="$config_dir/config"
+
+    if [[ -f "$config_file" ]]; then
+        source "$config_file"
+        local storage_path="${SSD_PATH%/}/${STORAGE_DIR}"
+
+        # Find symlinks pointing to shuttle storage
+        local -a offloaded
+        for link in ${~:-~}/**/*(@); do
+            local target=$(readlink "$link" 2>/dev/null)
+            if [[ "$target" == "$storage_path"* ]]; then
+                offloaded+=("$link")
+            fi
+        done
+
+        if (( ${#offloaded} )); then
+            _values 'offloaded paths' $offloaded
+        fi
+    fi
+
+    # Fallback to symlink completion
+    _path_files -/
+}
+
+_shuttle() {
+    local line state
+
+    _arguments -C \
+        "1: :_shuttle_commands" \
+        "*::arg:->args"
+
+    case $state in
+        args)
+            case $line[1] in
+                offload|off|o)
+                    _arguments "1:directory:_path_files -/"
+                    ;;
+                restore|res|r)
+                    _arguments "1:offloaded path:_path_files -/"
+                    ;;
+                status|stat|s)
+                    _arguments "1:path:_path_files -/"
+                    ;;
+                *)
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_shuttle "$@"
