@@ -7,7 +7,7 @@ _shuttle_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="offload restore status list config health help"
+    commands="offload restore restore-all status list config health help"
 
     case $prev in
         shuttle)

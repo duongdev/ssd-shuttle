@@ -7,6 +7,7 @@ _shuttle_commands() {
     local commands=(
         'offload:Move directory to external SSD, create symlink'
         'restore:Move directory back to internal drive'
+        'restore-all:Restore all offloaded directories'
         'status:Show status of path or all managed items'
         'list:List all offloaded directories'
         'config:Show configuration'
@@ -62,7 +63,7 @@ _shuttle() {
                     _arguments "1:directory:_path_files -/"
                     ;;
                 restore|res|r)
-                    _arguments "1:offloaded path:_path_files -/"
+                    _alternative 'options:option:(--all)' 'paths:offloaded path:_path_files -/'
                     ;;
                 status|stat|s)
                     _arguments "1:path:_path_files -/"

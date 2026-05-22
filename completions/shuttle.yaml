@@ -27,6 +27,10 @@ subcommands:
         description: Offloaded directory to restore
         generators:
           - type: directory
+  - name: restore-all
+    description: Restore all offloaded directories
+  - name: ra
+    description: Restore all offloaded directories (alias)
   - name: res
     description: Move directory back (alias)
     args:

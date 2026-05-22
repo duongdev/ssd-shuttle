@@ -17,6 +17,12 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/shuttle"
 CONFIG_FILE="$CONFIG_DIR/config"
 MANIFEST_FILE="$CONFIG_DIR/manifest.json"
 
+# Ancestor config that must stay discoverable from the SSD tree.
+# Tools like the Claude CLI resolve the symlink to its physical SSD
+# path, then look up-tree for these; without shims they never find the
+# real files on the internal disk (a different volume).
+SHIM_NAMES=(.mcp.json .claude CLAUDE.md)
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -228,6 +234,54 @@ format_size() {
     fi
 }
 
+create_ancestor_shims() {
+    local abs_path="$1"
+    local storage_path
+    storage_path=$(get_ssd_storage_path)
+
+    local dir
+    dir=$(dirname "$abs_path")
+    while [[ "$dir" != "$HOME" && "$dir" == "$HOME"/* ]]; do
+        local mirror_dir="$storage_path/$(get_relative_path "$dir")"
+        local name
+        for name in "${SHIM_NAMES[@]}"; do
+            local src="$dir/$name"
+            local link="$mirror_dir/$name"
+            if [[ -e "$src" && ! -e "$link" && ! -L "$link" ]]; then
+                mkdir -p "$mirror_dir"
+                ln -s "$src" "$link"
+                log_info "Linked ancestor config: ${DIM}$link → $src${NC}"
+            fi
+        done
+        dir=$(dirname "$dir")
+    done
+}
+
+# Returns 0 (and deletes them) if $1 contains only shim symlinks we
+# created, so the parent dir can be pruned on restore. Returns 1 if any
+# real offloaded data remains (another offloaded repo shares this dir).
+remove_orphan_shims() {
+    local dir="$1" entry base only_shims=1
+    shopt -s nullglob dotglob
+    local entries=("$dir"/*)
+    shopt -u nullglob dotglob
+
+    [[ ${#entries[@]} -eq 0 ]] && return 0
+
+    for entry in "${entries[@]}"; do
+        base=$(basename "$entry")
+        if [[ -L "$entry" ]] && printf '%s\n' "${SHIM_NAMES[@]}" | grep -qx "$base"; then
+            continue
+        fi
+        only_shims=0
+        break
+    done
+
+    [[ $only_shims -eq 1 ]] || return 1
+    for entry in "${entries[@]}"; do rm "$entry"; done
+    return 0
+}
+
 confirm_action() {
     local message="$1"
 
@@ -304,12 +358,66 @@ cmd_offload() {
         # Update manifest
         add_to_manifest "$abs_path" "$dest_path"
 
+        # Keep ancestor config (.mcp.json, .claude) discoverable from SSD
+        create_ancestor_shims "$abs_path"
+
         echo ""
         log_success "Offloaded successfully!"
         echo -e "  ${ICON_LINK} $abs_path ${DIM}→${NC} $dest_path"
     else
         log_error "Failed to move directory"
         exit 1
+    fi
+}
+
+# Move a single offloaded path back to the internal drive. Logs and
+# returns nonzero on failure instead of exiting, so callers (restore /
+# restore-all) control flow and confirmation themselves.
+restore_path() {
+    local abs_path="$1"
+    local storage_path
+    storage_path=$(get_ssd_storage_path)
+
+    if [[ ! -L "$abs_path" ]]; then
+        log_error "Path is not a symlink: $abs_path"
+        return 1
+    fi
+
+    local target
+    target=$(readlink "$abs_path")
+
+    if [[ "$target" != "$storage_path"* ]]; then
+        log_error "Symlink does not point to shuttle storage: $abs_path"
+        return 1
+    fi
+
+    if [[ ! -e "$target" ]]; then
+        log_error "Offloaded data not found at: $target"
+        return 1
+    fi
+
+    rm "$abs_path"
+
+    if mv "$target" "$abs_path"; then
+        remove_from_manifest "$abs_path"
+
+        # Clean up empty parent directories on SSD
+        local parent_dir
+        parent_dir=$(dirname "$target")
+        while [[ "$parent_dir" != "$storage_path" && -d "$parent_dir" ]]; do
+            if [[ -z "$(ls -A "$parent_dir" 2>/dev/null)" ]] || remove_orphan_shims "$parent_dir"; then
+                rmdir "$parent_dir" 2>/dev/null || break
+                parent_dir=$(dirname "$parent_dir")
+            else
+                break
+            fi
+        done
+        return 0
+    else
+        log_error "Failed to restore directory: $abs_path"
+        # Try to recreate symlink
+        ln -s "$target" "$abs_path"
+        return 1
     fi
 }
 
@@ -366,34 +474,65 @@ cmd_restore() {
         exit 0
     fi
 
-    # Remove symlink
-    rm "$abs_path"
-
-    # Move back
     log_info "Moving to internal drive..."
-    if mv "$target" "$abs_path"; then
-        # Update manifest
-        remove_from_manifest "$abs_path"
-
-        # Clean up empty parent directories on SSD
-        local parent_dir
-        parent_dir=$(dirname "$target")
-        while [[ "$parent_dir" != "$storage_path" && -d "$parent_dir" ]]; do
-            if [[ -z "$(ls -A "$parent_dir" 2>/dev/null)" ]]; then
-                rmdir "$parent_dir" 2>/dev/null || break
-                parent_dir=$(dirname "$parent_dir")
-            else
-                break
-            fi
-        done
-
+    if restore_path "$abs_path"; then
         echo ""
         log_success "Restored successfully!"
         echo -e "  ${ICON_FOLDER} $abs_path"
     else
-        log_error "Failed to restore directory"
-        # Try to recreate symlink
-        ln -s "$target" "$abs_path"
+        exit 1
+    fi
+}
+
+cmd_restore_all() {
+    check_ssd
+
+    if ! command -v jq &>/dev/null; then
+        log_error "jq is required for restore-all: brew install jq"
+        exit 1
+    fi
+
+    local count
+    count=$(jq '.items | length' "$MANIFEST_FILE" 2>/dev/null || echo "0")
+
+    if [[ "$count" == "0" ]]; then
+        log_info "No offloaded items to restore"
+        return 0
+    fi
+
+    local -a paths=()
+    while IFS= read -r orig; do
+        paths+=("$orig")
+    done < <(jq -r '.items[].original' "$MANIFEST_FILE" 2>/dev/null)
+
+    echo ""
+    echo -e "${CYAN}Restore All — $count item(s)${NC}"
+    echo -e "${DIM}─────────────────────────────────────────${NC}"
+    for orig in "${paths[@]}"; do
+        echo -e "  ${ICON_FOLDER} $orig"
+    done
+    echo ""
+
+    if ! confirm_action "Restore all $count item(s) to internal drive?"; then
+        log_info "Cancelled"
+        exit 0
+    fi
+
+    local restored=0 failed=0
+    for orig in "${paths[@]}"; do
+        log_info "Restoring $(basename "$orig")..."
+        if restore_path "$orig"; then
+            ((restored++))
+        else
+            ((failed++))
+        fi
+    done
+
+    echo ""
+    if [[ $failed -eq 0 ]]; then
+        log_success "Restored all $restored item(s)!"
+    else
+        log_warn "Restored $restored item(s), $failed failed"
         exit 1
     fi
 }
@@ -645,6 +784,7 @@ cmd_help() {
   COMMANDS
       offload <path>    Move directory to external SSD, create symlink in place
       restore <path>    Move directory back to internal drive, remove symlink
+      restore --all     Restore every offloaded directory (alias: restore-all)
       status [path]     Show status of a path or general shuttle status
       list              List all offloaded directories
       health            Check all symlinks and SSD connection
@@ -653,6 +793,7 @@ cmd_help() {
   EXAMPLES
       shuttle offload ~/projects/my-app     # Move to SSD
       shuttle restore ~/projects/my-app     # Bring it back
+      shuttle restore --all                 # Bring everything back
       shuttle status ~/projects/my-app      # Check if offloaded
       shuttle list                          # See all offloaded items
 
@@ -680,8 +821,17 @@ main() {
             cmd_offload "$1"
             ;;
         restore|res|r)
-            [[ -z "${1:-}" ]] && { log_error "Usage: shuttle restore <path>"; exit 1; }
-            cmd_restore "$1"
+            if [[ "${1:-}" == "--all" || "${1:-}" == "-a" ]]; then
+                cmd_restore_all
+            elif [[ -z "${1:-}" ]]; then
+                log_error "Usage: shuttle restore <path> | shuttle restore --all"
+                exit 1
+            else
+                cmd_restore "$1"
+            fi
+            ;;
+        restore-all|ra)
+            cmd_restore_all
             ;;
         status|stat|s)
             cmd_status "${1:-}"
